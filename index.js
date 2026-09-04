@@ -2,15 +2,25 @@ const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 const axios = require("axios");
 const cheerio = require("cheerio");
 
-const BASE_URL = "https://vegamovies.yt";
+// Updated fast mirror domain
+const BASE_URL = "https://vegamovies.im";
+
+const client = axios.create({
+    timeout: 8000,
+    headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5"
+    }
+});
 
 const manifest = {
     id: "org.vegamovies.directcatalog",
-    version: "1.0.0",
+    version: "1.0.1",
     name: "VegaMovies Direct",
-    description: "VegaMovies Custom Catalog & Stream Addon",
+    description: "VegaMovies Catalog & Search Addon",
     resources: ["catalog", "meta", "stream"],
-    types: ["movie", "series"],
+    types: ["series", "movie"],
     catalogs: [
         {
             type: "series",
@@ -30,6 +40,7 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
+// 1. Catalog & Search Handler
 builder.defineCatalogHandler(async ({ type, extra }) => {
     let targetUrl = `${BASE_URL}/category/${type === "series" ? "web-series" : "movies"}/`;
     if (extra && extra.search) {
@@ -37,16 +48,16 @@ builder.defineCatalogHandler(async ({ type, extra }) => {
     }
 
     try {
-        const { data } = await axios.get(targetUrl, {
-            headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)" }
-        });
-        const $ = cheerio.load(data);
+        const res = await client.get(targetUrl);
+        const $ = cheerio.load(res.data);
         const metas = [];
 
-        $("article, .post-item, .blog-item").each((_, el) => {
-            const title = $(el).find("h2, .entry-title").text().trim();
+        $("article, .post-item, .blog-item, div.item").each((_, el) => {
+            const titleEl = $(el).find("h2, .entry-title, a.title").first();
+            const title = titleEl.text().trim();
             const link = $(el).find("a").attr("href");
-            const poster = $(el).find("img").attr("src") || $(el).find("img").attr("data-src");
+            const imgEl = $(el).find("img");
+            const poster = imgEl.attr("data-src") || imgEl.attr("src") || "";
 
             if (title && link) {
                 const encodedId = "vega:" + Buffer.from(link).toString("base64");
@@ -54,54 +65,55 @@ builder.defineCatalogHandler(async ({ type, extra }) => {
                     id: encodedId,
                     type: type,
                     name: title,
-                    poster: poster || ""
+                    poster: poster
                 });
             }
         });
-        return { metas };
+        return { metas: metas.slice(0, 20) };
     } catch (err) {
+        console.error("Catalog fetch error:", err.message);
         return { metas: [] };
     }
 });
 
+// 2. Meta Handler
 builder.defineMetaHandler(async ({ type, id }) => {
     try {
-        const targetUrl = Buffer.from(id.replace("vega:", ""), "base64").toString("ascii");
-        const { data } = await axios.get(targetUrl, {
-            headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)" }
-        });
-        const $ = cheerio.load(data);
-        const title = $("h1.entry-title, h1").first().text().trim();
-        const poster = $(".entry-content img").first().attr("src");
+        const pageUrl = Buffer.from(id.replace("vega:", ""), "base64").toString("ascii");
+        const res = await client.get(pageUrl);
+        const $ = cheerio.load(res.data);
+
+        const title = $("h1.entry-title, h1").first().text().trim() || "Vega Series";
+        const img = $(".entry-content img").first();
+        const poster = img.attr("data-src") || img.attr("src") || "";
 
         return {
             meta: {
                 id: id,
                 type: type,
-                name: title || "Vega Video",
-                poster: poster || ""
+                name: title,
+                poster: poster
             }
         };
     } catch (err) {
-        return { meta: { id, type, name: "Vega Video" } };
+        return { meta: { id, type, name: "Vega Series" } };
     }
 });
 
+// 3. Stream Handler
 builder.defineStreamHandler(async ({ id }) => {
     try {
-        const targetUrl = Buffer.from(id.replace("vega:", ""), "base64").toString("ascii");
-        const { data } = await axios.get(targetUrl, {
-            headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)" }
-        });
-        const $ = cheerio.load(data);
+        const pageUrl = Buffer.from(id.replace("vega:", ""), "base64").toString("ascii");
+        const res = await client.get(pageUrl);
+        const $ = cheerio.load(res.data);
         const streams = [];
 
         $("a").each((_, el) => {
             const href = $(el).attr("href");
             const text = $(el).text().trim();
-            if (href && (href.includes("fastdl") || href.includes("hubcloud") || href.includes("drive") || href.includes("download"))) {
+            if (href && (href.includes("fastdl") || href.includes("hubcloud") || href.includes("drive") || href.includes("download") || href.includes("v-cloud"))) {
                 streams.push({
-                    title: text || "Vega Direct Stream",
+                    title: text || "Vega 1080p Stream",
                     url: href
                 });
             }
