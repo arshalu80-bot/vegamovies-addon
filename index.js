@@ -2,21 +2,19 @@ const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 const axios = require("axios");
 const cheerio = require("cheerio");
 
-// Updated fast mirror domain
 const BASE_URL = "https://vegamovies.im";
 
 const client = axios.create({
-    timeout: 8000,
+    timeout: 10000,
     headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
     }
 });
 
 const manifest = {
     id: "org.vegamovies.directcatalog",
-    version: "1.0.1",
+    version: "1.0.2",
     name: "VegaMovies Direct",
     description: "VegaMovies Catalog & Search Addon",
     resources: ["catalog", "meta", "stream"],
@@ -40,11 +38,12 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-// 1. Catalog & Search Handler
 builder.defineCatalogHandler(async ({ type, extra }) => {
-    let targetUrl = `${BASE_URL}/category/${type === "series" ? "web-series" : "movies"}/`;
+    let targetUrl = `${BASE_URL}/`;
     if (extra && extra.search) {
         targetUrl = `${BASE_URL}/?s=${encodeURIComponent(extra.search)}`;
+    } else {
+        targetUrl = `${BASE_URL}/category/${type === "series" ? "web-series" : "movies"}/`;
     }
 
     try {
@@ -52,14 +51,15 @@ builder.defineCatalogHandler(async ({ type, extra }) => {
         const $ = cheerio.load(res.data);
         const metas = [];
 
-        $("article, .post-item, .blog-item, div.item").each((_, el) => {
-            const titleEl = $(el).find("h2, .entry-title, a.title").first();
-            const title = titleEl.text().trim();
-            const link = $(el).find("a").attr("href");
-            const imgEl = $(el).find("img");
-            const poster = imgEl.attr("data-src") || imgEl.attr("src") || "";
+        // Catch multiple possible card elements on VegaMovies
+        $("article, div.post-item, div.blog-item, div.post").each((_, el) => {
+            const anchor = $(el).find("a").first();
+            const link = anchor.attr("href");
+            const title = $(el).find("h2, .entry-title, a.title").first().text().trim() || anchor.attr("title");
+            const img = $(el).find("img").first();
+            const poster = img.attr("src") || img.attr("data-src") || "";
 
-            if (title && link) {
+            if (link && title) {
                 const encodedId = "vega:" + Buffer.from(link).toString("base64");
                 metas.push({
                     id: encodedId,
@@ -69,23 +69,21 @@ builder.defineCatalogHandler(async ({ type, extra }) => {
                 });
             }
         });
-        return { metas: metas.slice(0, 20) };
+
+        return { metas: metas.slice(0, 25) };
     } catch (err) {
-        console.error("Catalog fetch error:", err.message);
         return { metas: [] };
     }
 });
 
-// 2. Meta Handler
 builder.defineMetaHandler(async ({ type, id }) => {
     try {
         const pageUrl = Buffer.from(id.replace("vega:", ""), "base64").toString("ascii");
         const res = await client.get(pageUrl);
         const $ = cheerio.load(res.data);
 
-        const title = $("h1.entry-title, h1").first().text().trim() || "Vega Series";
-        const img = $(".entry-content img").first();
-        const poster = img.attr("data-src") || img.attr("src") || "";
+        const title = $("h1.entry-title, h1").first().text().trim() || "Vega Stream";
+        const poster = $(".entry-content img").first().attr("src") || "";
 
         return {
             meta: {
@@ -96,11 +94,10 @@ builder.defineMetaHandler(async ({ type, id }) => {
             }
         };
     } catch (err) {
-        return { meta: { id, type, name: "Vega Series" } };
+        return { meta: { id, type, name: "Vega Stream" } };
     }
 });
 
-// 3. Stream Handler
 builder.defineStreamHandler(async ({ id }) => {
     try {
         const pageUrl = Buffer.from(id.replace("vega:", ""), "base64").toString("ascii");
@@ -113,11 +110,12 @@ builder.defineStreamHandler(async ({ id }) => {
             const text = $(el).text().trim();
             if (href && (href.includes("fastdl") || href.includes("hubcloud") || href.includes("drive") || href.includes("download") || href.includes("v-cloud"))) {
                 streams.push({
-                    title: text || "Vega 1080p Stream",
+                    title: text || "Play Video",
                     url: href
                 });
             }
         });
+
         return { streams };
     } catch (err) {
         return { streams: [] };
