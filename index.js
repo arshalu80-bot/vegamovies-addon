@@ -2,34 +2,35 @@ const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 const axios = require("axios");
 const cheerio = require("cheerio");
 
-const BASE_URL = "https://vegamovies.im";
+// Exact working domain aapke browser se
+const BASE_URL = "https://new2.vegamovies.futbol";
 
 const client = axios.create({
-    timeout: 10000,
+    timeout: 7000,
     headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+        "Referer": `${BASE_URL}/`
     }
 });
 
 const manifest = {
     id: "org.vegamovies.directcatalog",
-    version: "1.0.2",
+    version: "1.0.3",
     name: "VegaMovies Direct",
-    description: "VegaMovies Catalog & Search Addon",
+    description: "Search and stream directly from VegaMovies",
     resources: ["catalog", "meta", "stream"],
-    types: ["series", "movie"],
+    types: ["movie", "series"],
     catalogs: [
-        {
-            type: "series",
-            id: "vega_series",
-            name: "Vega Web Series",
-            extra: [{ name: "search", isRequired: false }]
-        },
         {
             type: "movie",
             id: "vega_movies",
             name: "Vega Movies",
+            extra: [{ name: "search", isRequired: false }]
+        },
+        {
+            type: "series",
+            id: "vega_series",
+            name: "Vega Web Series",
             extra: [{ name: "search", isRequired: false }]
         }
     ],
@@ -51,15 +52,15 @@ builder.defineCatalogHandler(async ({ type, extra }) => {
         const $ = cheerio.load(res.data);
         const metas = [];
 
-        // Catch multiple possible card elements on VegaMovies
-        $("article, div.post-item, div.blog-item, div.post").each((_, el) => {
+        // Exact VegaMovies cards match
+        $("article, div.item, div.post-item, div.blog-item").each((_, el) => {
             const anchor = $(el).find("a").first();
             const link = anchor.attr("href");
-            const title = $(el).find("h2, .entry-title, a.title").first().text().trim() || anchor.attr("title");
+            const title = $(el).find("h2, .entry-title, p").first().text().trim() || anchor.attr("title");
             const img = $(el).find("img").first();
-            const poster = img.attr("src") || img.attr("data-src") || "";
+            const poster = img.attr("data-src") || img.attr("src") || "";
 
-            if (link && title) {
+            if (link && title && !title.toLowerCase().includes("page")) {
                 const encodedId = "vega:" + Buffer.from(link).toString("base64");
                 metas.push({
                     id: encodedId,
@@ -70,7 +71,7 @@ builder.defineCatalogHandler(async ({ type, extra }) => {
             }
         });
 
-        return { metas: metas.slice(0, 25) };
+        return { metas: metas.slice(0, 20) };
     } catch (err) {
         return { metas: [] };
     }
@@ -82,8 +83,8 @@ builder.defineMetaHandler(async ({ type, id }) => {
         const res = await client.get(pageUrl);
         const $ = cheerio.load(res.data);
 
-        const title = $("h1.entry-title, h1").first().text().trim() || "Vega Stream";
-        const poster = $(".entry-content img").first().attr("src") || "";
+        const title = $("h1.entry-title, h1").first().text().trim() || "Vega Video";
+        const poster = $(".entry-content img, .post-content img").first().attr("src") || "";
 
         return {
             meta: {
@@ -94,7 +95,7 @@ builder.defineMetaHandler(async ({ type, id }) => {
             }
         };
     } catch (err) {
-        return { meta: { id, type, name: "Vega Stream" } };
+        return { meta: { id, type, name: "Vega Video" } };
     }
 });
 
@@ -110,7 +111,7 @@ builder.defineStreamHandler(async ({ id }) => {
             const text = $(el).text().trim();
             if (href && (href.includes("fastdl") || href.includes("hubcloud") || href.includes("drive") || href.includes("download") || href.includes("v-cloud"))) {
                 streams.push({
-                    title: text || "Play Video",
+                    title: text || "Vega Fast Stream",
                     url: href
                 });
             }
